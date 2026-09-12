@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f6f2e9">
+  <meta name="description" content="계획하고 집중하고 기록하는 학생용 스터디 플래너">
+  <title>스터디 플래너</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%231f382f'/%3E%3Cpath d='M17 14h30v38H17z' fill='%23f6f2e9'/%3E%3Cpath d='M23 24h18M23 32h18M23 40h12' stroke='%23d7684d' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-shell" id="appShell">
+    <header class="topbar">
+      <button class="brand" type="button" data-go="0" aria-label="오늘 화면으로 이동">
+        <span class="brand-mark" aria-hidden="true">SP</span>
+        <span><strong>스터디 플래너</strong><small id="todayLabel">오늘도 한 칸씩</small></span>
+      </button>
+      <button class="sync-button" id="syncButton" type="button" aria-label="데이터 동기화 설정">
+        <span class="sync-dot" id="syncDot"></span>
+        <span id="syncLabel">이 기기에 저장됨</span>
+      </button>
+    </header>
+
+    <main class="viewport" id="viewport">
+      <div class="track" id="track">
+        <section class="page dashboard-page" aria-labelledby="dashboardTitle">
+          <div class="page-inner dashboard-layout">
+            <div class="dashboard-main">
+              <div class="section-heading dashboard-heading">
+                <div>
+                  <p class="eyebrow" id="dateEyebrow"></p>
+                  <h1 id="dashboardTitle">오늘의 공부</h1>
+                </div>
+                <div class="streak" aria-label="연속 공부 일수"><span>🔥</span><strong id="streakCount">0</strong><small>일 연속</small></div>
+              </div>
+
+              <section class="paper-card progress-card" aria-labelledby="progressTitle">
+                <div class="progress-copy">
+                  <span class="card-kicker">TODAY'S PROGRESS</span>
+                  <h2 id="progressTitle"><span id="progressPercent">0</span>% 완료</h2>
+                  <p id="progressMessage">첫 계획을 적고 오늘의 리듬을 만들어 보세요.</p>
+                </div>
+                <div class="progress-ring" id="progressRing" style="--progress: 0" aria-label="오늘의 달성률 0%">
+                  <span id="progressFraction">0/0</span>
+                </div>
+              </section>
+
+              <section class="paper-card plans-card" aria-labelledby="todayPlansTitle">
+                <div class="card-title-row">
+                  <div>
+                    <span class="card-kicker">TO-DO</span>
+                    <h2 id="todayPlansTitle">오늘의 계획</h2>
+                  </div>
+                  <button class="text-button" id="quickAddToggle" type="button">＋ 계획 추가</button>
+                </div>
+
+                <form class="quick-add" id="quickAddForm" hidden>
+                  <label class="sr-only" for="quickTaskInput">공부 계획</label>
+                  <input id="quickTaskInput" name="title" maxlength="80" placeholder="예: 수학 오답노트 3쪽" required autocomplete="off">
+                  <label class="sr-only" for="quickSubjectSelect">과목</label>
+                  <select id="quickSubjectSelect" name="subject">
+                    <option>수학</option><option>영어</option><option>국어</option><option>과학</option><option>사회</option><option>기타</option>
+                  </select>
+                  <button class="primary-button" type="submit">추가</button>
+                </form>
+
+                <div class="task-list" id="todayTaskList"></div>
+                <div class="empty-state" id="todayEmpty" hidden>
+                  <span aria-hidden="true">✎</span>
+                  <p>아직 계획이 없어요.<br>작은 목표부터 적어볼까요?</p>
+                </div>
+              </section>
+            </div>
+
+            <aside class="dashboard-side">
+              <section class="paper-card focus-summary" aria-labelledby="focusSummaryTitle">
+                <div class="card-title-row">
+                  <div>
+                    <span class="card-kicker">FOCUS LOG</span>
+                    <h2 id="focusSummaryTitle">공부 기록</h2>
+                  </div>
+                  <span class="total-time" id="todayTotalTime">0분</span>
+                </div>
+                <div class="concept-form-wrap">
+                  <form id="conceptForm" class="concept-form">
+                    <label class="sr-only" for="conceptInput">공부한 개념</label>
+                    <input id="conceptInput" maxlength="80" placeholder="방금 공부한 개념을 기록하세요" required autocomplete="off">
+                    <button type="submit" aria-label="개념 기록 추가">＋</button>
+                  </form>
+                </div>
+                <div class="study-log" id="studyLog"></div>
+                <p class="log-empty" id="logEmpty">타이머로 집중하면 기록이 이곳에 쌓여요.</p>
+              </section>
+
+              <blockquote class="daily-note">
+                <span>오늘의 한 줄</span>
+                <p>완벽한 하루보다, 계속 이어지는 하루.</p>
+              </blockquote>
+            </aside>
+          </div>
+        </section>
+
+        <section class="page calendar-page" aria-labelledby="calendarTitle">
+          <div class="page-inner calendar-layout">
+            <div class="calendar-main">
+              <div class="section-heading calendar-heading">
+                <div>
+                  <p class="eyebrow">PLAN AHEAD</p>
+                  <h1 id="calendarTitle">공부 달력</h1>
+                </div>
+                <div class="view-tabs" role="tablist" aria-label="달력 보기 방식">
+                  <button type="button" data-view="week" role="tab">주간</button>
+                  <button type="button" data-view="month" role="tab" aria-selected="true">월간</button>
+                  <button type="button" data-view="year" role="tab">연간</button>
+                </div>
+              </div>
+
+              <section class="paper-card calendar-card">
+                <div class="calendar-toolbar">
+                  <button class="icon-button" id="calendarPrev" type="button" aria-label="이전 기간">←</button>
+                  <button class="month-title" id="calendarPeriod" type="button" aria-label="오늘 날짜로 이동"></button>
+                  <button class="icon-button" id="calendarNext" type="button" aria-label="다음 기간">→</button>
+                </div>
+                <div class="calendar-content" id="calendarContent"></div>
+              </section>
+            </div>
+
+            <aside class="paper-card date-planner" aria-labelledby="selectedDateTitle">
+              <div class="selected-date-head">
+                <span class="selected-day-number" id="selectedDayNumber"></span>
+                <div>
+                  <p id="selectedDateMeta"></p>
+                  <h2 id="selectedDateTitle">선택한 날의 계획</h2>
+                </div>
+              </div>
+              <form id="datePlanForm" class="date-plan-form">
+                <label for="datePlanInput">새 일정 또는 계획</label>
+                <textarea id="datePlanInput" rows="3" maxlength="100" placeholder="무엇을 공부할까요?" required></textarea>
+                <div class="form-row">
+                  <select id="datePlanSubject" aria-label="과목">
+                    <option>수학</option><option>영어</option><option>국어</option><option>과학</option><option>사회</option><option>기타</option>
+                  </select>
+                  <select id="datePlanScope" aria-label="계획 범위">
+                    <option value="day">일간 계획</option>
+                    <option value="week">주간 계획</option>
+                    <option value="month">월간 계획</option>
+                    <option value="year">연간 계획</option>
+                  </select>
+                </div>
+                <button class="primary-button wide" type="submit">이 날짜에 계획 저장</button>
+              </form>
+              <div class="date-task-list" id="selectedDatePlans"></div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="page timer-page" aria-labelledby="timerTitle">
+          <div class="page-inner timer-layout">
+            <div class="timer-intro">
+              <p class="eyebrow">DEEP FOCUS</p>
+              <h1 id="timerTitle">집중 타이머</h1>
+              <p>한 번에 하나만. 시작하면 타이머를 멈출 때까지 다른 화면은 잠겨요.</p>
+            </div>
+
+            <section class="timer-stage" aria-label="뽀모도로 타이머">
+              <div class="timer-mode-tabs" id="timerModeTabs">
+                <button type="button" data-minutes="25" class="active">집중 25분</button>
+                <button type="button" data-minutes="5">짧은 휴식 5분</button>
+                <button type="button" data-minutes="15">긴 휴식 15분</button>
+              </div>
+
+              <div class="tomato-wrap">
+                <div class="tomato-clock" id="tomatoClock">
+                  <div class="tomato-leaves" aria-hidden="true"><i></i><i></i><i></i></div>
+                  <svg class="timer-progress" viewBox="0 0 240 240" aria-hidden="true">
+                    <circle cx="120" cy="120" r="108"></circle>
+                    <circle id="timerProgressCircle" class="elapsed" cx="120" cy="120" r="108"></circle>
+                  </svg>
+                  <div class="timer-readout">
+                    <span id="timerStatus">준비</span>
+                    <strong id="timerDisplay">25:00</strong>
+                    <small id="timerRound">오늘 0번째 뽀모도로</small>
+                  </div>
+                </div>
+              </div>
+
+              <label class="timer-concept">
+                <span>이번에 집중할 개념</span>
+                <input id="timerConceptInput" maxlength="80" placeholder="예: 미분의 활용" autocomplete="off">
+              </label>
+
+              <div class="timer-actions">
+                <button class="timer-start" id="timerStart" type="button">집중 시작</button>
+                <button class="timer-stop" id="timerStop" type="button" hidden>■ 종료하고 기록</button>
+              </div>
+              <p class="timer-hint" id="timerHint">25분 동안 알림을 내려놓고 한 가지에 집중해 보세요.</p>
+            </section>
+          </div>
+        </section>
+
+        <section class="page achievement-page" aria-labelledby="achievementTitle">
+          <div class="page-inner achievement-layout">
+            <div class="section-heading achievement-heading">
+              <div>
+                <p class="eyebrow">MY ACCOMPLISHMENTS</p>
+                <h1 id="achievementTitle">성취 기록</h1>
+              </div>
+              <p class="achievement-caption">하루하루 해낸 계획이 쌓이고 있어요.</p>
+            </div>
+
+            <section class="paper-card achievement-card" aria-labelledby="achievementListTitle">
+              <div class="achievement-card-head">
+                <div>
+                  <span class="card-kicker">COMPLETED PLANS</span>
+                  <h2 id="achievementListTitle">날짜별 완료 목록</h2>
+                </div>
+                <span class="achievement-total" id="achievementTotal">0개 완료</span>
+              </div>
+              <div class="achievement-list" id="achievementList"></div>
+              <div class="empty-state achievement-empty" id="achievementEmpty" hidden>
+                <span aria-hidden="true">✓</span>
+                <p>아직 완료한 계획이 없어요.<br>첫 번째 체크를 남겨볼까요?</p>
+              </div>
+            </section>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <nav class="bottom-nav" aria-label="화면 이동">
+      <button class="nav-arrow" id="prevPage" type="button" aria-label="이전 화면">←</button>
+      <div class="page-dots" role="tablist" aria-label="화면 선택">
+        <button class="active" data-page="0" role="tab" aria-selected="true"><span>오늘</span></button>
+        <button data-page="1" role="tab"><span>달력</span></button>
+        <button data-page="2" role="tab"><span>타이머</span></button>
+        <button data-page="3" role="tab"><span>기록</span></button>
+      </div>
+      <button class="nav-arrow" id="nextPage" type="button" aria-label="다음 화면">→</button>
+    </nav>
+  </div>
+
+  <div class="focus-lock" id="focusLock" hidden aria-live="polite">
+    <div><span>집중 모드</span><strong id="lockTime">25:00</strong><small>타이머 화면에서 종료할 수 있어요</small></div>
+    <button id="returnToTimer" type="button">타이머로 돌아가기 →</button>
+  </div>
+
+  <dialog class="sync-dialog" id="syncDialog">
+    <form method="dialog" class="dialog-card" id="syncForm">
+      <button class="dialog-close" value="cancel" aria-label="닫기">×</button>
+      <span class="card-kicker">CLOUD SYNC</span>
+      <h2>기기 간 동기화</h2>
+      <p>Supabase를 연결하면 같은 이메일로 로그인한 노트북과 휴대폰에서 계획이 자동으로 맞춰집니다.</p>
+      <label>프로젝트 URL<input id="supabaseUrl" type="url" placeholder="https://xxxx.supabase.co"></label>
+      <label>Anon 공개 키<input id="supabaseKey" type="password" placeholder="eyJ..."></label>
+      <label>로그인 이메일<input id="syncEmail" type="email" placeholder="student@example.com"></label>
+      <button class="primary-button wide" id="saveSyncConfig" type="button">연결 정보 저장</button>
+      <button class="secondary-button wide" id="sendMagicLink" type="button">이메일 로그인 링크 받기</button>
+      <p class="sync-status" id="syncStatus">연결 전에도 이 기기에는 안전하게 저장됩니다.</p>
+      <details>
+        <summary>Supabase 최초 설정 SQL 보기</summary>
+        <pre>create table planner_data (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  payload jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+alter table planner_data enable row level security;
+create policy "own planner data" on planner_data
+for all using (auth.uid() = user_id)
+with check (auth.uid() = user_id);</pre>
+      </details>
+    </form>
+  </dialog>
+
+  <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
+  <script src="script.js"></script>
+</body>
+</html>
