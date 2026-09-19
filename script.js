@@ -4,7 +4,6 @@
   const DB_NAME = "study-planner-db";
   const STORE_NAME = "planner";
   const STATE_KEY = "main-state";
-  const CLOUD_CONFIG_KEY = "study-planner-cloud-config";
   const SUBJECT_COLORS = {
     "수학": "#56798e", "영어": "#d7684d", "국어": "#8b6ba5",
     "과학": "#4f8a68", "사회": "#c28a3d", "기타": "#77817d"
@@ -18,18 +17,18 @@
     tasks: [],
     logs: [],
     pomodoros: 0,
+    streakIcon: "",
+    timerPreferences: { focus: 40, break: 5 },
     updatedAt: new Date(0).toISOString()
   };
   let currentPage = 0;
   let calendarView = "month";
   let calendarCursor = new Date(now.getFullYear(), now.getMonth(), 1);
   let selectedDate = dateKey(now);
-  let timerMinutes = 25;
+  let timerMode = "focus";
+  let timerMinutes = 40;
   let timerRemaining = timerMinutes * 60;
-  let timerInterval = null;
-  let syncTimer = null;
-  let supabase = null;
-  let cloudUser = null;
+  let timerFrame = null;
   let dragStartX = null;
   let dragDelta = 0;
 
@@ -39,14 +38,15 @@
     progressPercent: $("#progressPercent"), progressRing: $("#progressRing"), progressFraction: $("#progressFraction"),
     progressMessage: $("#progressMessage"), studyLog: $("#studyLog"),
     logEmpty: $("#logEmpty"), todayTotalTime: $("#todayTotalTime"), streakCount: $("#streakCount"),
+    streakBadge: $("#streakBadge"), streakFlame: $("#streakFlame"), streakCustomize: $("#streakCustomize"),
     calendarContent: $("#calendarContent"), calendarPeriod: $("#calendarPeriod"), selectedDayNumber: $("#selectedDayNumber"),
     selectedDateMeta: $("#selectedDateMeta"), selectedDatePlans: $("#selectedDatePlans"),
     achievementList: $("#achievementList"), achievementEmpty: $("#achievementEmpty"), achievementTotal: $("#achievementTotal"),
     timerDisplay: $("#timerDisplay"), timerStatus: $("#timerStatus"), timerRound: $("#timerRound"),
     timerProgressCircle: $("#timerProgressCircle"), tomatoClock: $("#tomatoClock"), timerStart: $("#timerStart"),
     timerStop: $("#timerStop"), timerConceptInput: $("#timerConceptInput"), timerHint: $("#timerHint"),
-    focusLock: $("#focusLock"), lockTime: $("#lockTime"), syncDialog: $("#syncDialog"),
-    syncDot: $("#syncDot"), syncLabel: $("#syncLabel"), syncStatus: $("#syncStatus")
+    customTimerMinutes: $("#customTimerMinutes"), customTimerLabel: $("#customTimerLabel"), applyCustomTimer: $("#applyCustomTimer"),
+    focusLock: $("#focusLock"), lockTime: $("#lockTime")
   };
 
   function uid() {
@@ -112,15 +112,11 @@
     });
   }
 
-  async function persist({ remote = true } = {}) {
+  async function persist() {
     state.updatedAt = new Date().toISOString();
     await dbSet(state).catch(() => {
       localStorage.setItem(STATE_KEY, JSON.stringify(state));
     });
-    if (remote && cloudUser) {
-      clearTimeout(syncTimer);
-      syncTimer = setTimeout(pushCloud, 700);
-    }
   }
 
   async function loadState() {
@@ -134,6 +130,13 @@
     state.tasks = Array.isArray(state.tasks) ? state.tasks : [];
     state.logs = Array.isArray(state.logs) ? state.logs : [];
     state.pomodoros = Number(state.pomodoros) || 0;
+    state.streakIcon = typeof state.streakIcon === "string" ? state.streakIcon : "";
+    state.timerPreferences = {
+      focus: normalizeTimerMinutes(state.timerPreferences?.focus, 40),
+      break: normalizeTimerMinutes(state.timerPreferences?.break, 5)
+    };
+    timerMinutes = state.timerPreferences.focus;
+    timerRemaining = timerMinutes * 60;
     restoreTimer();
   }
 
@@ -202,7 +205,7 @@
       <div class="log-copy"><strong>${escapeHtml(log.concept || "집중 공부")}</strong><small>${log.seconds ? formatMinutes(log.seconds) : "개념 메모"} · ${escapeHtml(log.time || "")}</small></div>
       <button class="log-delete" type="button" data-delete-log="${log.id}" aria-label="기록 삭제">×</button>
     </article>`).join("");
-    els.streakCount.textContent = calculateStreak();
+    renderStreak();
   }
 
   function calculateStreak() {
@@ -218,6 +221,18 @@
       cursor.setDate(cursor.getDate() - 1);
     }
     return streak;
+  }
+
+  function renderStreak() {
+    const streak = calculateStreak();
+    const level = Math.min(3, streak);
+    const canCustomize = streak >= 3;
+    els.streakCount.textContent = streak;
+    els.streakBadge.dataset.level = String(level);
+    els.streakBadge.dataset.custom = String(canCustomize && Boolean(state.streakIcon));
+    els.streakFlame.textContent = canCustomize && state.streakIcon ? state.streakIcon : "🔥";
+    els.streakCustomize.hidden = !canCustomize;
+    els.streakCustomize.title = canCustomize ? "불꽃 아이콘 바꾸기" : "3일 연속부터 바꿀 수 있어요";
   }
 
   function renderAchievements() {
@@ -334,43 +349,78 @@
   function renderTimer() {
     const running = Boolean(state.timer?.running);
     const total = state.timer?.duration || timerMinutes * 60;
-    const remaining = running ? getRemainingSeconds() : timerRemaining;
-    const minutes = Math.floor(remaining / 60);
-    const seconds = remaining % 60;
-    const text = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    const remainingMs = running ? getRemainingMilliseconds() : timerRemaining * 1000;
+    const overtimeSeconds = running ? Math.max(0, Math.floor((Date.now() - state.timer.endsAt) / 1000)) : 0;
+    const displaySeconds = overtimeSeconds || Math.ceil(remainingMs / 1000);
+    const minutes = Math.floor(displaySeconds / 60);
+    const seconds = displaySeconds % 60;
+    const text = `${overtimeSeconds ? "+" : ""}${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
     els.timerDisplay.textContent = text;
     els.lockTime.textContent = text;
-    els.timerStatus.textContent = running ? (state.timer.mode === "focus" ? "집중 중" : "휴식 중") : "준비";
-    els.timerRound.textContent = `오늘 ${todayPomodoros()}번째 뽀모도로`;
-    const ratio = total ? 1 - remaining / total : 0;
+    els.timerStatus.textContent = running
+      ? (overtimeSeconds ? "목표 시간 달성" : state.timer.mode === "focus" ? "집중 중" : "휴식 중")
+      : "준비";
+    const activeMode = state.timer?.mode || timerMode;
+    els.timerRound.textContent = activeMode === "focus" ? `오늘 ${todayPomodoros()}번째 집중` : "휴식 시간";
+    const ratio = total ? Math.min(1, 1 - remainingMs / (total * 1000)) : 0;
     els.timerProgressCircle.style.strokeDashoffset = String(678.6 * (1 - ratio));
     els.tomatoClock.classList.toggle("running", running);
     els.timerStart.hidden = running;
     els.timerStop.hidden = !running;
     els.timerConceptInput.disabled = running;
+    els.customTimerMinutes.disabled = running;
+    els.applyCustomTimer.disabled = running;
+    if (!running) els.customTimerMinutes.value = timerMinutes;
+    els.customTimerLabel.textContent = `${activeMode === "focus" ? "집중" : "휴식"} 시간`;
+    els.timerStart.textContent = activeMode === "focus" ? "집중 시작" : "휴식 시작";
     $$("#timerModeTabs button").forEach(button => {
       button.disabled = running;
-      button.classList.toggle("active", Number(button.dataset.minutes) === timerMinutes);
+      button.classList.toggle("active", button.dataset.mode === activeMode);
     });
     els.timerHint.textContent = running
-      ? "집중 중에는 오늘·달력 화면이 잠깁니다. 종료하면 공부 기록에 저장돼요."
-      : `${timerMinutes}분 동안 알림을 내려놓고 한 가지에 집중해 보세요.`;
+      ? overtimeSeconds
+        ? "목표 시간을 넘겼어요. 원할 때 종료하면 실제 공부 시간이 그대로 기록돼요."
+        : "집중 중에는 오늘·달력 화면이 잠깁니다. 목표 시간이 지나도 직접 종료할 때까지 계속 측정돼요."
+      : activeMode === "focus"
+        ? `${timerMinutes}분 동안 알림을 내려놓고 한 가지에 집중해 보세요.`
+        : `${timerMinutes}분 동안 편하게 쉬어가세요.`;
     updateNavigationLock(running);
+  }
+
+  function applyCustomTimer() {
+    if (state.timer?.running) return;
+    const minutes = Number(els.customTimerMinutes.value);
+    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 180) {
+      showToast("1분에서 180분 사이로 입력해 주세요.");
+      els.customTimerMinutes.focus();
+      return;
+    }
+    state.timerPreferences[timerMode] = minutes;
+    timerMinutes = minutes;
+    timerRemaining = minutes * 60;
+    persist();
+    renderTimer();
+    showToast(`${timerMode === "focus" ? "집중" : "휴식"} 시간을 ${minutes}분으로 설정했어요.`);
+  }
+
+  function normalizeTimerMinutes(value, fallback) {
+    const minutes = Number(value);
+    return Number.isInteger(minutes) && minutes >= 1 && minutes <= 180 ? minutes : fallback;
   }
 
   function todayPomodoros() {
     return state.logs.filter(log => log.date === dateKey(new Date()) && log.completedPomodoro).length;
   }
 
-  function getRemainingSeconds() {
-    if (!state.timer?.running) return timerRemaining;
-    return Math.max(0, Math.ceil((state.timer.endsAt - Date.now()) / 1000));
+  function getRemainingMilliseconds() {
+    if (!state.timer?.running) return timerRemaining * 1000;
+    return Math.max(0, state.timer.endsAt - Date.now());
   }
 
   function startTimer() {
     if (state.timer?.running) return;
     const duration = timerMinutes * 60;
-    const mode = timerMinutes === 25 ? "focus" : "break";
+    const mode = timerMode;
     state.timer = {
       running: true, duration, startedAt: Date.now(), endsAt: Date.now() + duration * 1000,
       concept: els.timerConceptInput.value.trim(), mode
@@ -383,43 +433,44 @@
   }
 
   function startTimerLoop() {
-    clearInterval(timerInterval);
-    timerInterval = setInterval(() => {
-      if (!state.timer?.running) return clearInterval(timerInterval);
-      if (getRemainingSeconds() <= 0) finishTimer(true);
-      else renderTimer();
-    }, 500);
+    cancelAnimationFrame(timerFrame);
+    const tick = () => {
+      if (!state.timer?.running) return;
+      renderTimer();
+      timerFrame = requestAnimationFrame(tick);
+    };
+    timerFrame = requestAnimationFrame(tick);
   }
 
-  async function finishTimer(completed) {
+  async function finishTimer() {
     if (!state.timer?.running) return;
     const timer = { ...state.timer };
-    const elapsed = Math.min(timer.duration, Math.max(0, Math.round((Date.now() - timer.startedAt) / 1000)));
-    clearInterval(timerInterval);
+    const elapsed = Math.max(0, Math.round((Date.now() - timer.startedAt) / 1000));
+    const reachedGoal = elapsed >= timer.duration;
+    cancelAnimationFrame(timerFrame);
     delete state.timer;
     timerRemaining = timerMinutes * 60;
     if (timer.mode === "focus" && elapsed >= 60) {
       state.logs.push({
         id: uid(), date: dateKey(new Date()), concept: timer.concept || "집중 공부",
-        seconds: completed ? timer.duration : elapsed, createdAt: new Date().toISOString(),
+        seconds: elapsed, createdAt: new Date().toISOString(),
         time: new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" }).format(new Date()),
-        completedPomodoro: completed
+        completedPomodoro: reachedGoal
       });
     }
     await persist();
     renderAll();
-    showToast(completed ? (timer.mode === "focus" ? "뽀모도로 완료! 공부 기록에 저장했어요." : "휴식이 끝났어요.") : (elapsed >= 60 && timer.mode === "focus" ? "지금까지의 집중 시간을 저장했어요." : "타이머를 종료했어요."));
+    showToast(elapsed >= 60 && timer.mode === "focus"
+      ? `${formatMinutes(elapsed)} 집중 시간을 기록했어요.`
+      : "타이머를 종료했어요.");
   }
 
   function restoreTimer() {
     if (!state.timer?.running) return;
+    timerMode = state.timer.mode === "break" ? "break" : "focus";
     timerMinutes = Math.round(state.timer.duration / 60);
-    if (getRemainingSeconds() <= 0) {
-      finishTimer(true);
-    } else {
-      startTimerLoop();
-      currentPage = 2;
-    }
+    startTimerLoop();
+    currentPage = 2;
   }
 
   function updateNavigationLock(locked) {
@@ -478,6 +529,15 @@
   }
 
   function bindEvents() {
+    els.streakCustomize.addEventListener("click", async () => {
+      if (calculateStreak() < 3) return;
+      const icon = window.prompt("3일 연속 달성! 표시할 아이콘을 하나 입력해 주세요.\n비워 두면 기본 불꽃으로 돌아가요.", state.streakIcon || "🔥");
+      if (icon === null) return;
+      state.streakIcon = icon.trim().slice(0, 8);
+      await persist();
+      renderStreak();
+      showToast(state.streakIcon ? "연속 공부 아이콘을 바꿨어요." : "기본 불꽃으로 되돌렸어요.");
+    });
     $("#quickAddToggle").addEventListener("click", () => {
       els.quickAddForm.hidden = !els.quickAddForm.hidden;
       if (!els.quickAddForm.hidden) $("#quickTaskInput").focus();
@@ -547,19 +607,26 @@
       calendarCursor = new Date(); selectedDate = dateKey(new Date()); renderCalendar();
     });
     $$("#timerModeTabs button").forEach(button => button.addEventListener("click", () => {
-      timerMinutes = Number(button.dataset.minutes);
+      timerMode = button.dataset.mode === "break" ? "break" : "focus";
+      timerMinutes = state.timerPreferences[timerMode];
       timerRemaining = timerMinutes * 60;
       renderTimer();
     }));
+    els.applyCustomTimer.addEventListener("click", applyCustomTimer);
+    els.customTimerMinutes.addEventListener("keydown", event => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        applyCustomTimer();
+      }
+    });
     els.timerStart.addEventListener("click", startTimer);
-    els.timerStop.addEventListener("click", () => finishTimer(false));
+    els.timerStop.addEventListener("click", finishTimer);
     $("#returnToTimer").addEventListener("click", () => { els.focusLock.hidden = true; goToPage(2, true); });
     $$("[data-page]").forEach(button => button.addEventListener("click", () => goToPage(Number(button.dataset.page))));
     $$("[data-go]").forEach(button => button.addEventListener("click", () => goToPage(Number(button.dataset.go))));
     els.prevPage.addEventListener("click", () => goToPage(currentPage - 1));
     els.nextPage.addEventListener("click", () => goToPage(currentPage + 1));
     bindSwipe();
-    bindCloudEvents();
     window.addEventListener("beforeunload", event => {
       if (state.timer?.running) {
         event.preventDefault();
@@ -603,111 +670,6 @@
     };
     els.viewport.addEventListener("pointerup", endDrag);
     els.viewport.addEventListener("pointercancel", endDrag);
-  }
-
-  function bindCloudEvents() {
-    $("#syncButton").addEventListener("click", () => {
-      const config = readCloudConfig();
-      $("#supabaseUrl").value = config.url || "";
-      $("#supabaseKey").value = config.key || "";
-      $("#syncEmail").value = config.email || "";
-      els.syncDialog.showModal();
-    });
-    $("#saveSyncConfig").addEventListener("click", async () => {
-      const config = getCloudFormValues();
-      if (!config.url || !config.key) return showToast("프로젝트 URL과 Anon 키를 입력해 주세요.");
-      localStorage.setItem(CLOUD_CONFIG_KEY, JSON.stringify(config));
-      setSyncState("syncing", "연결 확인 중");
-      await initCloud();
-    });
-    $("#sendMagicLink").addEventListener("click", async () => {
-      const config = getCloudFormValues();
-      if (!config.email) return showToast("로그인 이메일을 입력해 주세요.");
-      if (!supabase) {
-        localStorage.setItem(CLOUD_CONFIG_KEY, JSON.stringify(config));
-        await initCloud();
-      }
-      if (!supabase) return;
-      const { error } = await supabase.auth.signInWithOtp({ email: config.email, options: { emailRedirectTo: location.href.split("#")[0] } });
-      if (error) setDialogStatus(`로그인 링크를 보내지 못했어요: ${error.message}`);
-      else setDialogStatus("이메일을 확인해 로그인 링크를 눌러 주세요. 같은 이메일을 두 기기에서 사용하면 됩니다.");
-    });
-  }
-
-  function getCloudFormValues() {
-    return { url: $("#supabaseUrl").value.trim().replace(/\/$/, ""), key: $("#supabaseKey").value.trim(), email: $("#syncEmail").value.trim() };
-  }
-
-  function readCloudConfig() {
-    try { return JSON.parse(localStorage.getItem(CLOUD_CONFIG_KEY)) || {}; } catch { return {}; }
-  }
-
-  function setSyncState(kind, label) {
-    els.syncDot.className = `sync-dot${kind ? ` ${kind}` : ""}`;
-    els.syncLabel.textContent = label;
-  }
-
-  function setDialogStatus(message) {
-    els.syncStatus.textContent = message;
-  }
-
-  async function initCloud() {
-    const config = readCloudConfig();
-    if (!config.url || !config.key) return;
-    try {
-      setSyncState("syncing", "동기화 중");
-      const module = await import("https://esm.sh/@supabase/supabase-js@2");
-      supabase = module.createClient(config.url, config.key, { auth: { persistSession: true, detectSessionInUrl: true } });
-      const { data, error } = await supabase.auth.getSession();
-      if (error) throw error;
-      cloudUser = data.session?.user || null;
-      supabase.auth.onAuthStateChange((_event, session) => {
-        cloudUser = session?.user || null;
-        if (cloudUser) syncCloud();
-        else setSyncState("", "로그인 필요");
-      });
-      if (cloudUser) await syncCloud();
-      else {
-        setSyncState("", "로그인 필요");
-        setDialogStatus("연결 정보가 저장됐어요. 이메일 로그인 링크를 받아 로그인해 주세요.");
-      }
-    } catch (error) {
-      supabase = null; cloudUser = null;
-      setSyncState("", "오프라인 저장");
-      setDialogStatus(`클라우드 연결을 확인해 주세요: ${error.message || "알 수 없는 오류"}`);
-    }
-  }
-
-  async function syncCloud() {
-    if (!supabase || !cloudUser) return;
-    setSyncState("syncing", "동기화 중");
-    const { data, error } = await supabase.from("planner_data").select("payload, updated_at").eq("user_id", cloudUser.id).maybeSingle();
-    if (error) {
-      setSyncState("", "동기화 오류");
-      setDialogStatus(`planner_data 테이블 설정을 확인해 주세요: ${error.message}`);
-      return;
-    }
-    if (data?.payload && new Date(data.payload.updatedAt || data.updated_at) > new Date(state.updatedAt)) {
-      state = { ...state, ...data.payload };
-      await dbSet(state);
-      renderAll();
-    } else {
-      await pushCloud();
-    }
-    setSyncState("online", "클라우드 동기화됨");
-    setDialogStatus(`${cloudUser.email || "현재 계정"}으로 동기화 중입니다.`);
-  }
-
-  async function pushCloud() {
-    if (!supabase || !cloudUser) return;
-    setSyncState("syncing", "동기화 중");
-    const { error } = await supabase.from("planner_data").upsert({ user_id: cloudUser.id, payload: state, updated_at: state.updatedAt });
-    if (error) {
-      setSyncState("", "동기화 오류");
-      setDialogStatus(`저장하지 못했어요: ${error.message}`);
-    } else {
-      setSyncState("online", "클라우드 동기화됨");
-    }
   }
 
   function registerWebMcpTools() {
@@ -757,7 +719,6 @@
     renderAll();
     goToPage(state.timer?.running ? 2 : 0, true);
     registerWebMcpTools();
-    initCloud();
   }
 
   init();

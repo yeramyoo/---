@@ -16,10 +16,6 @@
         <span class="brand-mark" aria-hidden="true">SP</span>
         <span><strong>스터디 플래너</strong><small id="todayLabel">오늘도 한 칸씩</small></span>
       </button>
-      <button class="sync-button" id="syncButton" type="button" aria-label="데이터 동기화 설정">
-        <span class="sync-dot" id="syncDot"></span>
-        <span id="syncLabel">이 기기에 저장됨</span>
-      </button>
     </header>
 
     <main class="viewport" id="viewport">
@@ -32,7 +28,11 @@
                   <p class="eyebrow" id="dateEyebrow"></p>
                   <h1 id="dashboardTitle">오늘의 공부</h1>
                 </div>
-                <div class="streak" aria-label="연속 공부 일수"><span>🔥</span><strong id="streakCount">0</strong><small>일 연속</small></div>
+                <div class="streak" id="streakBadge" aria-label="연속 공부 일수">
+                  <span class="streak-flame" id="streakFlame" aria-hidden="true">🔥</span>
+                  <strong id="streakCount">0</strong><small>일 연속</small>
+                  <button class="streak-customize" id="streakCustomize" type="button" hidden aria-label="연속 공부 아이콘 바꾸기">✎</button>
+                </div>
               </div>
 
               <section class="paper-card progress-card" aria-labelledby="progressTitle">
@@ -165,9 +165,14 @@
 
             <section class="timer-stage" aria-label="뽀모도로 타이머">
               <div class="timer-mode-tabs" id="timerModeTabs">
-                <button type="button" data-minutes="25" class="active">집중 25분</button>
-                <button type="button" data-minutes="5">짧은 휴식 5분</button>
-                <button type="button" data-minutes="15">긴 휴식 15분</button>
+                <button type="button" data-mode="focus" class="active">집중</button>
+                <button type="button" data-mode="break">휴식</button>
+              </div>
+              <div class="timer-custom-time">
+                <label for="customTimerMinutes" id="customTimerLabel">집중 시간</label>
+                <input id="customTimerMinutes" type="number" min="1" max="180" value="40" inputmode="numeric" aria-label="타이머 시간(분)">
+                <span>분</span>
+                <button id="applyCustomTimer" type="button">적용</button>
               </div>
 
               <div class="tomato-wrap">
@@ -244,33 +249,6 @@
     <div><span>집중 모드</span><strong id="lockTime">25:00</strong><small>타이머 화면에서 종료할 수 있어요</small></div>
     <button id="returnToTimer" type="button">타이머로 돌아가기 →</button>
   </div>
-
-  <dialog class="sync-dialog" id="syncDialog">
-    <form method="dialog" class="dialog-card" id="syncForm">
-      <button class="dialog-close" value="cancel" aria-label="닫기">×</button>
-      <span class="card-kicker">CLOUD SYNC</span>
-      <h2>기기 간 동기화</h2>
-      <p>Supabase를 연결하면 같은 이메일로 로그인한 노트북과 휴대폰에서 계획이 자동으로 맞춰집니다.</p>
-      <label>프로젝트 URL<input id="supabaseUrl" type="url" placeholder="https://xxxx.supabase.co"></label>
-      <label>Anon 공개 키<input id="supabaseKey" type="password" placeholder="eyJ..."></label>
-      <label>로그인 이메일<input id="syncEmail" type="email" placeholder="student@example.com"></label>
-      <button class="primary-button wide" id="saveSyncConfig" type="button">연결 정보 저장</button>
-      <button class="secondary-button wide" id="sendMagicLink" type="button">이메일 로그인 링크 받기</button>
-      <p class="sync-status" id="syncStatus">연결 전에도 이 기기에는 안전하게 저장됩니다.</p>
-      <details>
-        <summary>Supabase 최초 설정 SQL 보기</summary>
-        <pre>create table planner_data (
-  user_id uuid primary key references auth.users(id) on delete cascade,
-  payload jsonb not null default '{}'::jsonb,
-  updated_at timestamptz not null default now()
-);
-alter table planner_data enable row level security;
-create policy "own planner data" on planner_data
-for all using (auth.uid() = user_id)
-with check (auth.uid() = user_id);</pre>
-      </details>
-    </form>
-  </dialog>
 
   <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
   <script src="script.js"></script>
